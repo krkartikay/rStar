@@ -44,7 +44,9 @@ def parse_args():
     args.add_argument('--custom_cfg', type=str, default="config/sft_eval_mcts.yaml")
     args.add_argument("--qaf", type=str, default="", help="quesuion and answer file")
     args.add_argument('--model_dir', type=str, default="") 
+    args.add_argument('--policy_lora_dir', type=str, default="")
     args.add_argument('--reward_model_dir', type=str, default="") 
+    args.add_argument('--reward_model_lora_dir', type=str, default="")
     args.add_argument('--save_in_model', type=str, default="")
     args = args.parse_args()
     return args
@@ -60,11 +62,17 @@ if __name__ == '__main__':
     config = OmegaConf.create(OmegaConf.to_yaml(config, resolve=True))
     if args.model_dir:
         config.model_dir = args.model_dir
+    if args.policy_lora_dir:
+        config.policy_lora_dir = args.policy_lora_dir
     if args.reward_model_dir:
         config.reward_model_dir = args.reward_model_dir
+    if args.reward_model_lora_dir:
+        config.reward_model_lora_dir = args.reward_model_lora_dir
     print(config)
 
     llm_version = os.path.basename(config.model_dir.rstrip("/"))
+    if config.policy_lora_dir:
+        llm_version += "." + os.path.basename(config.policy_lora_dir.rstrip("/"))
 
     data = load_qaf(args.qaf)
     solver = Solver(config=config)
@@ -78,6 +86,8 @@ if __name__ == '__main__':
         raise NotImplementedError
     if args.reward_model_dir:
         llm_version += "." + args.reward_model_dir.split("/")[-1]
+    if args.reward_model_lora_dir:
+        llm_version += "." + args.reward_model_lora_dir.split("/")[-1]
         
     saved_jsonl_file = f"{args.qaf}.{config.mode}.{llm_version}.{datetime.now().strftime('%Y%m%d%H%M%S')}.jsonl" 
     

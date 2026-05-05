@@ -5,6 +5,13 @@ import torch
 from rstar_deepthink.llms.rm import *
 from transformers import AutoConfig, AutoTokenizer
 from vllm import LLM, SamplingParams
+from vllm.lora.request import LoRARequest
+
+
+def _lora_request(name, path):
+    if not path:
+        return None
+    return LoRARequest(lora_name=name, lora_int_id=1, lora_path=path)
 
 def llm_init(config):
     llm = LLM(
@@ -18,6 +25,8 @@ def llm_init(config):
         enforce_eager=True,
         distributed_executor_backend='ray' if config.tp > 1 else None,
         dtype="bfloat16",
+        enable_lora=bool(config.policy_lora_dir),
+        max_lora_rank=64,
     )
     sampling_params = SamplingParams(
         temperature=config.temperature,
@@ -30,11 +39,11 @@ def llm_init(config):
         skip_special_tokens=False,
         seed=config.seed if config.temperature == 0 else None, # vllm0.6.6.post1 
     )
-    return llm, sampling_params
+    return llm, sampling_params, _lora_request("policy_lora", config.policy_lora_dir)
 
 def llm_engine(config):
-    llm, sampling_params = llm_init(config)
-    return llm, sampling_params
+    llm, sampling_params, lora_request = llm_init(config)
+    return llm, sampling_params, lora_request
 
 def rm_engine(config):
     if config.need_value_func:
@@ -47,6 +56,8 @@ def rm_engine(config):
             enforce_eager=True,
             swap_space=0,
             gpu_memory_utilization=0.98 - config.llm_gpu_memory_utilization, # for qwen 7b, rm need 15G memory
+            enable_lora=bool(config.reward_model_lora_dir),
+            max_lora_rank=64,
         )
         
         v_head_state = torch.load(os.path.join(config.reward_model_dir, "value_head.bin"), weights_only=True)
@@ -58,6 +69,6 @@ def rm_engine(config):
         v_head.load_state_dict(v_state)
         v_head.eval()
         tokenizer = AutoTokenizer.from_pretrained(config.reward_model_dir, trust_remote_code=True, use_cache = False, split_special_tokens=False,)
-        return prm_model, v_head, tokenizer
+        return prm_model, v_head, tokenizer, _lora_request("reward_model_lora", config.reward_model_lora_dir)
     else:
-        return None, None, None
+        return None, None, None, None

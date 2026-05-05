@@ -2,11 +2,13 @@
 # Licensed under the MIT license.
 import warnings
 import torch
+import torch.distributed.tensor
 import os
 from rm import *
 from datasets import load_dataset, concatenate_datasets
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, HfArgumentParser, set_seed
+from peft import PeftModel
 from typing import Dict
 from trl import ModelConfig, RewardConfig
 import random
@@ -39,6 +41,7 @@ if __name__ == "__main__":
     parser.add_argument('--metrics_path', type=str, default=None)
     parser.add_argument('--linear_tpye', type=str, default="single")
     parser.add_argument('--attn_impl', type=str, default="eager")
+    parser.add_argument('--model_lora_path', type=str, default=None)
     config, model_config, remain_args = parser.parse_args_into_dataclasses()
     
     config.gradient_checkpointing_kwargs = dict(use_reentrant=False)
@@ -62,6 +65,8 @@ if __name__ == "__main__":
         attn_implementation=remain_args.attn_impl,
         use_cache=False,
     )
+    if remain_args.model_lora_path:
+        model = PeftModel.from_pretrained(model, remain_args.model_lora_path, is_trainable=True)
     model = RewardModelWithValueHead(pretrained_model=model, linear_tpye=remain_args.linear_tpye)
 
     if tokenizer.pad_token is None:

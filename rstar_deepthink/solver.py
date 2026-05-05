@@ -28,6 +28,8 @@ class Solver(BaseModel):
     llm: Optional[Callable[[...], List[str]]] = None
     llm_engine: Optional[LLM] = None
     generate_sampling_params: Optional[SamplingParams] = None
+    policy_lora_request: Optional[Any] = None
+    reward_model_lora_request: Optional[Any] = None
     need_value_func: bool = False
     max_agent_steps: int = 1
     reward_model: Optional[Any] = None
@@ -56,23 +58,27 @@ class Solver(BaseModel):
 
 
     def create_rm(self):
-        rm, v_head, tokenizer = rm_engine(self.config)
+        rm, v_head, tokenizer, lora_request = rm_engine(self.config)
+        self.reward_model_lora_request = lora_request
         return partial(
             rm_generate,
             model=rm,
             v_head=v_head,
             tokenizer=tokenizer,
             max_model_len=self.config.max_model_len,
+            lora_request=self.reward_model_lora_request,
         )
 
 
     def create_llm(self):
-        engine, sampling_params = llm_engine(self.config)
+        engine, sampling_params, lora_request = llm_engine(self.config)
         self.llm_engine = engine
         self.generate_sampling_params = sampling_params
+        self.policy_lora_request = lora_request
         return partial(
             llm_generate,
             engine=self.llm_engine,
+            lora_request=self.policy_lora_request,
         )
 
         

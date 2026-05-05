@@ -56,8 +56,14 @@ class BaseConfig:
     model_dir: Optional[str] = field(
         default=None, metadata={"help": "llm model dir"}
     )
+    policy_lora_dir: Optional[str] = field(
+        default=None, metadata={"help": "optional LoRA adapter dir for policy model"}
+    )
     reward_model_dir: Optional[str] = field(
         default=None, metadata={"help": "reward model dir"}
+    )
+    reward_model_lora_dir: Optional[str] = field(
+        default=None, metadata={"help": "optional LoRA adapter dir for reward model"}
     )
     few_shot_path: Optional[str] = field(
         default=None, metadata={"help": "few shot data json"}

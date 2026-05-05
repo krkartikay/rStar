@@ -10,6 +10,7 @@ scipy
 word2number
 transformers==4.45.2
 trl==0.9.6
+peft==0.19.1
 func_timeout
 editdistance
 datasets

@@ -6,6 +6,24 @@ MARIO_EVAL/
 # C extensions
 *.so
 data/
+
+# Local model, cache, and experiment artifacts
+models/
+outputs/
+hf_cache/
+wandb/
+runs/
+checkpoints/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.jsonl
+
+# Locally generated benchmark subsets
+eval_data/gpt2_bootstrap_tiny.json
+eval_data/gsm8k_*_bootstrap.json
 # Distribution / packaging
 .Python
 build/

@@ -14,9 +14,10 @@ def llm_generate(
     prompts: List[str],
     sampling_params: SamplingParams,
     engine: LLM,
+    lora_request=None,
 ):
     if not prompts: return []
-    outputs = engine.generate(prompts, sampling_params=sampling_params)   
+    outputs = engine.generate(prompts, sampling_params=sampling_params, lora_request=lora_request)   
      
     # remove duplicate outputs
     for output in outputs:
@@ -63,7 +64,7 @@ def prevent_overlength(texts, tokenizer, max_model_len):
     return truncated_texts
 
 
-def rm_generate(model: LLM, v_head, prompts, tokenizer, max_model_len):
+def rm_generate(model: LLM, v_head, prompts, tokenizer, max_model_len, lora_request=None):
     if not prompts:
         return []
     rewards = []
@@ -71,7 +72,10 @@ def rm_generate(model: LLM, v_head, prompts, tokenizer, max_model_len):
     with torch.no_grad():
         for i in range(0, len(prompts), batch_size):
             inputs = [prompt['prefix'] + prompt['text'] for prompt in prompts[i:i+batch_size]]
-            batch_outputs = model.encode(prevent_overlength(inputs, tokenizer, max_model_len))
+            batch_outputs = model.encode(
+                prevent_overlength(inputs, tokenizer, max_model_len),
+                lora_request=lora_request,
+            )
             for output in batch_outputs:
                 last_hidden_states = output.outputs.data[-1]
                 reward = v_head(last_hidden_states)

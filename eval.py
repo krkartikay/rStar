@@ -13,6 +13,7 @@ from eval_output import eval_output_file
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default='')
+    parser.add_argument("--policy_lora_dir", type=str, default='')
     parser.add_argument("--device", type=int, default=0)
     parser.add_argument("--base_mode", type=str, default="")
     parser.add_argument("--task", type=str, default="gsm8k")
@@ -68,12 +69,15 @@ if __name__ == "__main__":
             }
 
             if args.task in task_to_file:
-                save_dir = os.path.join(args.model, args.task)
+                result_root = args.policy_lora_dir or args.model
+                save_dir = os.path.join(result_root, args.task)
                 command = (
                     f'python main.py --custom_cfg config/sft_eval_greedy.yaml '
                     f'--qaf ./eval_data/{task_to_file[args.task]} '
                     f'--save_in_model {save_dir} --model_dir {model}'
                 )
+                if args.policy_lora_dir:
+                    command += f' --policy_lora_dir {args.policy_lora_dir}'
                 os.system(command)
             else:
                 print(f"Error: Unknown task '{args.task}'")

@@ -1,9 +1,11 @@
 import os
 import torch
+import torch.distributed.tensor
 import argparse
 from rm import *
 from safetensors.torch import load_file
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from peft import PeftModel
 from transformers.utils import (
     SAFE_WEIGHTS_NAME,
 )
@@ -41,6 +43,7 @@ def fix_valuehead(
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
     args.add_argument("--sft_model_path", type=str, default="sft_model_path")
+    args.add_argument("--sft_lora_path", type=str, default=None)
     args.add_argument("--rm_ckpt_path", type=str, default="rm_ckpt_path")
     args.add_argument("--rm_save_path", type=str, default="rm_save_path")
     args = args.parse_args()
@@ -51,5 +54,8 @@ if __name__ == "__main__":
         #torch_dtype=torch.bfloat16,
         use_cache=False,
     )
+    if args.sft_lora_path:
+        model = PeftModel.from_pretrained(model, args.sft_lora_path)
+        model = model.merge_and_unload()
     model = RewardModelWithValueHead(pretrained_model=model)
     fix_valuehead(model, args.rm_ckpt_path, args.rm_save_path)
