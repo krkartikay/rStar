@@ -835,3 +835,333 @@ Token indices sequence length is longer than the specified maximum sequence leng
 ```
 
 The run still completed. This appears tied to tokenizer metadata, not the adapter patch itself, because vLLM was configured with `max_model_len: 1536` for the run.
+
+## Clean LoRA SFT Iteration From Existing Tree Data
+
+Goal:
+
+Clean out trial/smoke artifacts and run one fresh Qwen 0.5B LoRA SFT iteration using the retained proper tree-config bootstrap data.
+
+Kept:
+
+```text
+models/qwen2.5-0.5b-instruct
+config/qwen05_tree_mcts_bootstrap.yaml
+outputs/qwen05_gsm8k20_tree
+```
+
+Deleted:
+
+```text
+config/gpt2_tiny_mcts.yaml
+config/gpt2_tiny_mcts_fewshot.yaml
+config/qwen05_tiny_mcts_fewshot.yaml
+config/qwen05_tiny_mcts_singlepass.yaml
+models/gpt2
+outputs/gpt2_bootstrap_tiny
+outputs/gpt2_bootstrap_tiny_fewshot
+outputs/qwen05_bootstrap_singlepass
+outputs/qwen05_bootstrap_tiny
+outputs/qwen05_bootstrap_tiny_deeper
+outputs/qwen05_gsm8k100_singlepass
+outputs/qwen05_gsm8k100_tree
+outputs/qwen05_lora_main_smoke
+outputs/qwen05_lora_sft_gsm8k20_tree_r8_20ep
+outputs/qwen05_lora_sft_gsm8k20_tree_r8_20ep_noembed
+outputs/qwen05_sft_gsm8k100
+outputs/qwen05_sft_gsm8k20_tree_fp16_lr1e7_10ep
+outputs/qwen05_sft_gsm8k20_tree_fp32_5ep
+outputs/qwen05_sft_gsm8k20_tree_smoke
+outputs/qwen05_sft_smoke
+outputs/sft_gpt2_smoke
+```
+
+The retained SFT extraction has 7 positive examples:
+
+```bash
+python -c "import json; d=json.load(open('outputs/qwen05_gsm8k20_tree/sft.json')); print(len(d))"
+```
+
+Fresh training command:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 \
+HF_HOME=/home/krkartikay/lossfunk/auto_replicate/hf_cache \
+WANDB_DISABLED=true \
+NCCL_IB_DISABLE=1 \
+NCCL_P2P_DISABLE=0 \
+CUBLAS_WORKSPACE_CONFIG=:4096:8 \
+TORCH_NCCL_BLOCKING_WAIT=0 \
+FLASH_ATTENTION_DETERMINISTIC=1 \
+MASTER_ADDR=localhost \
+MASTER_PORT=1954 \
+GLOO_SOCKET_IFNAME=lo \
+NCCL_SOCKET_IFNAME=lo \
+python -m torch.distributed.launch \
+  --master_addr localhost \
+  --master_port 1954 \
+  --nproc_per_node=1 \
+  --use_env train/train_SFT_lora.py \
+  --model_name_or_path models/qwen2.5-0.5b-instruct \
+  --data_path outputs/qwen05_gsm8k20_tree/sft.json \
+  --data_length 7 \
+  --output_dir outputs/qwen05_lora_sft_gsm8k20_tree_clean \
+  --num_train_epochs 20 \
+  --per_device_train_batch_size 1 \
+  --per_device_eval_batch_size 1 \
+  --gradient_accumulation_steps 1 \
+  --evaluation_strategy no \
+  --save_strategy no \
+  --learning_rate 1e-4 \
+  --weight_decay 0.0 \
+  --warmup_ratio 0.03 \
+  --lr_scheduler_type cosine \
+  --logging_steps 1 \
+  --model_max_length 512 \
+  --fp16 True \
+  --gradient_checkpointing True \
+  --max_grad_norm 0.3 \
+  --attn_impl eager \
+  --report_to none \
+  --lora_r 8 \
+  --lora_alpha 16 \
+  --lora_dropout 0.05
+```
+
+Result:
+
+```text
+Output: outputs/qwen05_lora_sft_gsm8k20_tree_clean
+Trainable params: 4,399,104 / 498,431,872 (0.8826%)
+Runtime: 39.276 s
+Train samples/sec: 3.565
+Train steps/sec: 3.565
+Final train loss: 0.10542248098188013
+Adapter size: 17,640,136 bytes
+Total output dir size: 33M
+```
+
+Gradient behavior:
+
+The first two logged `grad_norm` values were `nan` at zero learning rate during warmup, matching the earlier LoRA run. After LR became non-zero, gradients stayed finite. This is unlike the full-model fp16 SFT attempts, which produced `inf` gradients and/or OOM.
+
+Verification:
+
+```bash
+python -c "import torch.distributed.tensor; from transformers import AutoModelForCausalLM; from peft import PeftModel; base='models/qwen2.5-0.5b-instruct'; adapter='outputs/qwen05_lora_sft_gsm8k20_tree_clean'; m=AutoModelForCausalLM.from_pretrained(base, trust_remote_code=True, device_map='cpu'); m=PeftModel.from_pretrained(m, adapter); print('adapter reload ok')"
+```
+
+Result:
+
+```text
+adapter reload ok
+```
+
+Current retained disk footprint after cleanup:
+
+```text
+3.1M outputs/qwen05_gsm8k20_tree
+33M  outputs/qwen05_lora_sft_gsm8k20_tree_clean
+1.9G models/qwen2.5-0.5b-instruct
+```
+
+Next step:
+
+Use `outputs/qwen05_lora_sft_gsm8k20_tree_clean` as `--policy_lora_dir` for the next MCTS generation pass, then extract a larger SFT/RM dataset from that adapter-backed run.
+
+## GSM8K Greedy Evaluation Baselines
+
+Date: 2026-05-06
+
+Goal:
+
+Evaluate the clean LoRA-adapted policy on full GSM8K, then compare it with the base model and the instruction-tuned base checkpoint used by the adapter.
+
+Postprocess warning investigation:
+
+The repeated warning during generation:
+
+```text
+can only concatenate str (not "int") to str
+```
+
+was local code, not a model issue. vLLM can return an integer token id as `CompletionOutput.stop_reason` when a completion stops on EOS. The search code assumed `stop_reason` was either a string stop token or empty and did:
+
+```python
+output.text + output.stop_reason
+```
+
+This was patched in:
+
+```text
+rstar_deepthink/agents/mcts.py
+rstar_deepthink/agents/beam_search.py
+```
+
+Both paths now append only string stop reasons:
+
+```python
+stop_reason = output.stop_reason if isinstance(output.stop_reason, str) else ""
+step_result, parser_result = self.step_unwrap(output.text + stop_reason)
+```
+
+Verification:
+
+```bash
+python -m py_compile rstar_deepthink/agents/mcts.py rstar_deepthink/agents/beam_search.py
+
+CUDA_VISIBLE_DEVICES=0 \
+HF_HOME=/home/krkartikay/lossfunk/auto_replicate/hf_cache \
+VLLM_WORKER_MULTIPROC_METHOD=spawn \
+python main.py \
+  --qaf eval_data/gsm8k_20_bootstrap.json \
+  --custom_cfg config/sft_eval_greedy.yaml \
+  --model_dir models/qwen2.5-0.5b-instruct \
+  --save_in_model outputs/postprocess_fix_smoke/run
+```
+
+Result:
+
+```text
+Smoke generation completed without the old concat warning.
+```
+
+The greedy eval config still emits separate vLLM warnings for some second-step prompts:
+
+```text
+Input prompt (4097 tokens) is too long and exceeds limit of 4096
+```
+
+That is a separate max-length/truncation issue, not the postprocess `stop_reason` bug.
+
+Materialized the base checkpoint:
+
+```bash
+python -c "from transformers import AutoModelForCausalLM, AutoTokenizer; model_id='Qwen/Qwen2.5-0.5B'; out='models/qwen2.5-0.5b-base'; m=AutoModelForCausalLM.from_pretrained(model_id, trust_remote_code=True); t=AutoTokenizer.from_pretrained(model_id, trust_remote_code=True); m.save_pretrained(out); t.save_pretrained(out); print('saved', out)"
+```
+
+Evaluation commands:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 \
+HF_HOME=/home/krkartikay/lossfunk/auto_replicate/hf_cache \
+VLLM_WORKER_MULTIPROC_METHOD=spawn \
+python eval.py \
+  --model models/qwen2.5-0.5b-base \
+  --device 0 \
+  --task gsm8k
+
+CUDA_VISIBLE_DEVICES=0 \
+HF_HOME=/home/krkartikay/lossfunk/auto_replicate/hf_cache \
+VLLM_WORKER_MULTIPROC_METHOD=spawn \
+python eval.py \
+  --model models/qwen2.5-0.5b-instruct \
+  --device 0 \
+  --task gsm8k
+
+CUDA_VISIBLE_DEVICES=0 \
+HF_HOME=/home/krkartikay/lossfunk/auto_replicate/hf_cache \
+VLLM_WORKER_MULTIPROC_METHOD=spawn \
+python eval.py \
+  --model models/qwen2.5-0.5b-instruct \
+  --policy_lora_dir outputs/qwen05_lora_sft_gsm8k20_tree_clean \
+  --device 0 \
+  --task gsm8k
+```
+
+Scoring commands:
+
+```bash
+python eval_output.py --file_path models/qwen2.5-0.5b-base/gsm8k.jsonl
+
+# eval.py appends if the output file already exists, so score only the latest 1319 rows for this run.
+tail -n 1319 models/qwen2.5-0.5b-instruct/gsm8k.jsonl > /tmp/qwen2.5-0.5b-instruct_gsm8k_latest.jsonl
+python eval_output.py --file_path /tmp/qwen2.5-0.5b-instruct_gsm8k_latest.jsonl
+
+python eval_output.py --file_path outputs/qwen05_lora_sft_gsm8k20_tree_clean/gsm8k.jsonl
+```
+
+Results:
+
+```text
+Qwen2.5-0.5B base:
+  output: models/qwen2.5-0.5b-base/gsm8k.jsonl
+  rows: 1319
+  correct: 8 / 1319
+  pass@1: 0.006065200909780136 = 0.61%
+
+Qwen2.5-0.5B-Instruct:
+  output: models/qwen2.5-0.5b-instruct/gsm8k.jsonl
+  scored rows: latest 1319 rows
+  correct: 17 / 1319
+  pass@1: 0.01288855193328279 = 1.29%
+
+Qwen2.5-0.5B-Instruct + LoRA SFT adapter:
+  output: outputs/qwen05_lora_sft_gsm8k20_tree_clean/gsm8k.jsonl
+  rows: 1319
+  correct: 89 / 1319
+  pass@1: 0.06747536012130402 = 6.75%
+```
+
+Interpretation:
+
+The 7-example LoRA SFT adapter improves this exact rStar greedy GSM8K setup from 1.29% to 6.75% over the instruction checkpoint. This is still a very low absolute score and should be treated as a tiny-data local experiment, not a model-quality result. The base model performs worst at 0.61%, as expected for this rStar prompt format.
+
+## Qwen LoRA Iteration Runner
+
+Date: 2026-05-06
+
+Added `run_iteration_qwen_lora.sh` to automate the local loop:
+
+1. Generate MCTS rollouts with the current adapter.
+2. Extract and sample positive SFT traces.
+3. Train a fresh LoRA adapter on those traces.
+4. Run greedy GSM8K evaluation for the new adapter.
+5. Append machine-readable results to `outputs/qwen05_lora_iterations/results.jsonl` and table rows to `outputs/qwen05_lora_iterations/results.md`.
+
+Default command:
+
+```bash
+bash run_iteration_qwen_lora.sh
+```
+
+Useful overrides:
+
+```bash
+MAX_ITERS=5 BOOTSTRAP_QAF=eval_data/gsm8k_100_bootstrap.json bash run_iteration_qwen_lora.sh
+```
+
+The script starts at iteration `2` by default because the notebook already records base, instruct, and the first clean LoRA round.
+
+Iteration 2 completed:
+
+```text
+rollout adapter: outputs/qwen05_lora_sft_gsm8k20_tree_clean
+trained adapter: outputs/qwen05_lora_iterations/iter02/adapter
+rollout QAF: eval_data/gsm8k_20_bootstrap.json
+positive SFT samples: 5
+GSM8K greedy output: outputs/qwen05_lora_iterations/iter02/adapter/gsm8k.jsonl
+GSM8K score: 365 / 1319 = 0.2767247915087187 = 27.67%
+```
+
+Iteration 3 completed:
+
+```text
+rollout adapter: outputs/qwen05_lora_iterations/iter02/adapter
+trained adapter: outputs/qwen05_lora_iterations/iter03/adapter
+rollout QAF: eval_data/gsm8k_20_bootstrap.json
+positive SFT samples: 13
+GSM8K greedy output: outputs/qwen05_lora_iterations/iter03/adapter/gsm8k.jsonl
+GSM8K score: 256 / 1319 = 0.19408642911296436 = 19.41%
+```
+
+This regressed from iteration 2 on GSM8K despite producing more positive bootstrap SFT samples. The result suggests the loop can overfit or drift on the tiny 20-problem bootstrap set, so later runs should be compared against the best recorded checkpoint rather than assumed monotonic.
+
+After this run, `run_iteration_qwen_lora.sh` was fixed so `MAX_ITERS` means the final iteration index, not the number of iterations to run. The command below runs only iteration 4 from the completed iteration 3 adapter:
+
+```bash
+START_ITER=4 \
+MAX_ITERS=4 \
+START_ADAPTER=outputs/qwen05_lora_iterations/iter03/adapter \
+bash run_iteration_qwen_lora.sh
+```
