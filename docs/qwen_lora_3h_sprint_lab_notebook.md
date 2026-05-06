@@ -229,3 +229,66 @@ Summary:
 - Nearby LR/epoch variants did not beat the best: LR 7e-5 scored 29.19%, LR 1.2e-4 scored 29.42%, and 30 epochs at LR 1e-4 scored 31.39%.
 - Generated-data variants regressed: the 63-sample bootstrap-derived set scored 15.62% with the iteration runner and 14.56% with a gentler sprint SFT run.
 - The next useful direction is likely better filtering/selection of generated traces, not simply more generated traces or more aggressive SFT.
+
+## Qwen LoRA Iteration Runner
+
+Date: 2026-05-06
+
+Added `run_iteration_qwen_lora.sh` to automate the local loop:
+
+1. Generate MCTS rollouts with the current adapter.
+2. Extract and sample positive SFT traces.
+3. Train a fresh LoRA adapter on those traces.
+4. Run greedy GSM8K evaluation for the new adapter.
+5. Append machine-readable results to `outputs/qwen05_lora_plus1h_mcts/results.jsonl` and table rows to `outputs/qwen05_lora_plus1h_mcts/results.md`.
+
+Default command:
+
+```bash
+bash run_iteration_qwen_lora.sh
+```
+
+Useful overrides:
+
+```bash
+MAX_ITERS=5 BOOTSTRAP_QAF=eval_data/gsm8k_100_bootstrap.json bash run_iteration_qwen_lora.sh
+```
+
+The script starts at iteration `1` by default because the notebook already records base, instruct, and the first clean LoRA round.
+
+## Experiment: plus1h_mcts12_r16_d0_lr5e5_ep5
+
+```text
+time: 2026-05-06T07:49:12
+data: outputs/qwen05_lora_plus1h_mcts/iter01/train/sft.json
+samples: 12
+epochs: 5
+lr: 5e-5
+lora_r: 16
+lora_dropout: 0
+adapter: outputs/qwen05_lora_plus1h_mcts_sft/plus1h_mcts12_r16_d0_lr5e5_ep5/adapter
+GSM8K output: outputs/qwen05_lora_plus1h_mcts_sft/plus1h_mcts12_r16_d0_lr5e5_ep5/adapter/gsm8k.jsonl
+GSM8K score: 69 / 1319 = 0.052312357846853674 = 5.23%
+```
+
+## Plus 1h MCTS continuation closeout
+
+```text
+time: 2026-05-06T07:49:23 IST
+starting adapter: outputs/qwen05_lora_3h_sprint/iter02_5_r16_d0_lr1e4_ep20/adapter
+starting GSM8K score: 417 / 1319 = 31.61%
+bootstrap: eval_data/gsm8k_20_bootstrap.json
+generated SFT samples: 12
+```
+
+Results:
+
+- Full MCTS+LoRA iteration from the best adapter, using the 12 generated SFT samples with rank 16, alpha 32, dropout 0, LR 1e-4, 20 epochs: 224 / 1319 = 16.98%.
+- Gentler LoRA fit on the same 12 generated SFT samples with rank 16, alpha 32, dropout 0, LR 5e-5, 5 epochs: 69 / 1319 = 5.23%.
+- Current best remains `outputs/qwen05_lora_3h_sprint/iter02_5_r16_d0_lr1e4_ep20/adapter` at 417 / 1319 = 31.61%.
+
+Interpretation:
+
+- The new MCTS-positive traces are not useful for direct SFT as currently extracted. Lowering LR/epochs did not recover performance, so this looks more like data quality/style drift than just overfitting.
+- The continuation generated many unfinished/long outputs during eval and repeated symbolic execution warnings such as `TypeError: unsupported operand type(s) for /: 'int' and 'Equality'`; scoring still completed, but those warnings are another sign that the generated-answer format is drifting.
+- Next iteration should add trace filtering before training. At minimum, filter SFT traces to examples whose final answer is extractable, concise, and numeric, and reject traces that trigger symbolic execution errors or produce long unfinished continuations.
