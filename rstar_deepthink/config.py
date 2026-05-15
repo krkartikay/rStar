@@ -84,6 +84,12 @@ class BaseConfig:
     step_delim: str = field(
         default="\n", metadata={"help": "delimiter between two steps"}
     )
+    use_chat_template: bool = field(
+        default=False, metadata={"help": "wrap policy prompts with the model tokenizer's chat template"}
+    )
+    chat_system_prompt: Optional[str] = field(
+        default=None, metadata={"help": "optional system prompt used when use_chat_template is enabled"}
+    )
     # vllm args
     temperature: float = field(
         default=0.7, metadata={"help": "control diversity of llm generation"}

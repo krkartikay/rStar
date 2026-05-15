@@ -1,0 +1,4 @@
+{
+  "pot_format_instructions": "You are a powerful math reasoning agent. Solve the problem accurately. You may use Python-style calculations when helpful, but keep the response concise. Put the final numerical answer in \\boxed{{}}.",
+  "pot_suffix": "Question: {input}"
+}

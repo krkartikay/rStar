@@ -32,6 +32,10 @@ class ModelArguments:
 @dataclass
 class DataArguments:
     data_path: str = field(default=None, metadata={"help": "Path to the training data."})
+    use_chat_template: bool = field(
+        default=False,
+        metadata={"help": "Format SFT sources with tokenizer.apply_chat_template."},
+    )
 
 
 @dataclass
@@ -88,7 +92,7 @@ def train():
         model_args.model_name_or_path,
         cache_dir=training_args.cache_dir,
         model_max_length=training_args.model_max_length,
-        padding_side="left" if "mistral" in model_args.model_name_or_path.lower() else "right",
+        padding_side="left" if data_args.use_chat_template else ("left" if "mistral" in model_args.model_name_or_path.lower() else "right"),
         trust_remote_code=True,
     )
     if tokenizer.pad_token is None:

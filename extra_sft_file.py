@@ -5,6 +5,13 @@ from eval_output import *
 from rstar_deepthink.agents.utils import *
 
 
+def has_valid_final_answer(node: InferNode) -> bool:
+    return bool(
+        node.final_answer
+        and node.final_answer not in [NO_VALID_CHILD, TOO_MANY_STEPS, TOO_MANY_CODE_ERRORS]
+    )
+
+
 def extract_boxed_answer(text, debug=False):
     if text is None:
         return None
@@ -34,12 +41,16 @@ def search_all_traces(node: InferNode) -> List[List[InferNode]]:
     tmp_list = []
     ret_list = []
     def dfs(node: InferNode):
-        if not node.children:
-            tmp_list.append(node)
+        tmp_list.append(node)
+        if has_valid_final_answer(node):
             ret_list.append(tmp_list.copy())
             tmp_list.pop()
+            return
+        if not node.children:
+            ret_list.append(tmp_list.copy())
+            tmp_list.pop()
+            return
             
-        tmp_list.append(node)
         for child in node.children:
             dfs(child)
         tmp_list.pop()
@@ -131,7 +142,7 @@ def build_solution(valid_traces: List[List[InferNode]], wrong_traces: List[List[
 
 def extra_solution_dict( 
     full_tree_dict: Dict[str, Any], 
-    prune: bool = True,
+    prune: bool = False,
     b1: int = 64,
     b2: int = 16,
     c_puct: float = 2,
@@ -152,9 +163,9 @@ def extra_solution_dict(
     valid_traces = []
     invalid_traces = []
     for trace in traces:
-        if is_valid_final_answer_node(trace[-1]) and math_equiv(trace[-1].final_answer, ground_truth):
+        if has_valid_final_answer(trace[-1]) and math_equiv(ground_truth, trace[-1].final_answer):
             valid_traces.append(trace)
-        elif is_valid_final_answer_node(trace[-1]):
+        elif has_valid_final_answer(trace[-1]):
             invalid_traces.append(trace)
         elif not trace[-1].children and trace[-1].final_answer and trace[-1].final_answer not in [NO_VALID_CHILD, TOO_MANY_STEPS]:
             # trace with code error

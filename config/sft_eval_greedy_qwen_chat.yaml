@@ -1,0 +1,25 @@
+mode: "mcts"
+model_dir: ""
+few_shot_path: "./rstar_deepthink/few_shots/few_shots.json"
+prompt_path: "./rstar_deepthink/few_shots/sft_prompt_qwen_chat.json"
+swap_space: 0
+temperature: 0
+errors_threshold: 3
+prompt_wrap: "rstar"
+result_unwrap: "rstar"
+use_chat_template: true
+chat_system_prompt: "You are Qwen, created by Alibaba Cloud. You are a helpful assistant."
+step_delim: "\n"
+stop: ["<|im_end|>", "<end_of_answer>"]
+max_depth: 1
+n_generate_sample: 1
+best_of: 1
+seed: 42
+is_sampling: false
+iterations: 1
+max_tokens: 1024
+need_value_func: false
+batch_size: 64
+num_few_shot: 0
+max_model_len: 4096
+llm_gpu_memory_utilization: 0.7

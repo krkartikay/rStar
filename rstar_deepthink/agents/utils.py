@@ -3,7 +3,11 @@
 # Adapted from https://github.com/MARIO-Math-Reasoning/Super_MARIO
 from __future__ import annotations
 from typing import List, Dict, Any, Optional, Type, Tuple, Union
+from functools import lru_cache
+from decimal import Decimal, InvalidOperation
+import re
 from math_evaluation import is_equiv
+from transformers import AutoTokenizer
 from rstar_deepthink.prompts.prompt_rstar import PROMPT_RSTAR
 from rstar_deepthink.tools.python_tool import PythonInterpreter
 from rstar_deepthink.constants import *
@@ -69,6 +73,8 @@ INVALID_ANS = "[invalid]"
 def extract_math_answer(answer):
     try:
         ans = answer
+        if "boxed" in ans:
+            return remove_text_box(extract_boxed_answer(ans)).strip()
         extract_ans_temp = ans.split('.\n')[0]
         extract_ans_temp = extract_ans_temp.strip()
         if len(extract_ans_temp) > 0 and extract_ans_temp[-1] == '.':
@@ -84,6 +90,35 @@ def extract_math_answer(answer):
 
 python_tool_string = f"{PythonInterpreter().name}: {PythonInterpreter().description}"
 python_tool_name = PythonInterpreter().name
+
+
+@lru_cache(maxsize=8)
+def _load_chat_tokenizer(model_dir: str):
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_dir,
+        trust_remote_code=True,
+        split_special_tokens=False,
+    )
+    tokenizer.padding_side = "left"
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    return tokenizer
+
+
+def apply_chat_template(prompt: str, partial_solution: str, config) -> str:
+    tokenizer = _load_chat_tokenizer(config.model_dir)
+    messages = []
+    if config.chat_system_prompt:
+        messages.append({"role": "system", "content": config.chat_system_prompt})
+    messages.append({"role": "user", "content": prompt})
+    rendered = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True,
+    )
+    if partial_solution:
+        rendered += partial_solution
+    return rendered
     
 
 def rstar_prompt_wrap(
@@ -112,6 +147,8 @@ def rstar_prompt_wrap(
         prompt = step_delim.join([prompt_pot.pot_suffix.format(input=inputs)])
     else:
         prompt = step_delim.join([prompt, prompt_pot.pot_suffix.format(input=inputs)])
+    if config.use_chat_template:
+        return apply_chat_template(prompt, partial_solution, config)
     if partial_solution:
         prompt = "".join([prompt, partial_solution])
     return prompt + ""
@@ -200,12 +237,35 @@ def rstar_equiv(gt, pred):
     return False
         
 
+def _ground_truth_candidates(grt: Union[str, list[str]]) -> list[str]:
+    candidates = grt if isinstance(grt, list) else [grt]
+    expanded = []
+    for item in candidates:
+        text = str(item)
+        expanded.append(text)
+        if "####" in text:
+            expanded.append(text.split("####")[-1].strip())
+    return expanded
+
+
+def _last_numeric_value(text: str) -> Optional[Decimal]:
+    numbers = re.findall(r"[-+]?\d*\.?\d+", str(text).replace(",", ""))
+    if not numbers:
+        return None
+    try:
+        return Decimal(numbers[-1]).normalize()
+    except InvalidOperation:
+        return None
+
+
 def math_equiv(grt: Union[str, list[str]], prd: str):
     prd = (prd)
-    if isinstance(grt, list):
-        for g in grt:
-            if rstar_equiv(g, prd):
-                return True
-        return False
-    else:
-        return rstar_equiv(grt, prd)
+    for g in _ground_truth_candidates(grt):
+        if rstar_equiv(g, prd):
+            return True
+    if isinstance(grt, str) and "####" in grt:
+        gt_num = _last_numeric_value(grt.split("####")[-1])
+        pred_num = _last_numeric_value(prd)
+        if gt_num is not None and pred_num is not None and gt_num == pred_num:
+            return True
+    return False

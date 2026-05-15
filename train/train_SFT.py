@@ -60,6 +60,10 @@ class ModelArguments:
 @dataclass
 class DataArguments:
     data_path: str = field(default=None, metadata={"help": "Path to the training data."})
+    use_chat_template: bool = field(
+        default=False,
+        metadata={"help": "Format SFT sources with tokenizer.apply_chat_template."},
+    )
     
     
 @dataclass
@@ -179,14 +183,18 @@ class SupervisedDataset(Dataset):
                 return '\n'.join(query.split('\n')[1:])
             list_data_dict = [{'instruction':data['query'], 'output':data['response']} for data in list_data_dict]
         # import ipdb; ipdb.set_trace()
-        sources = [
-            prompt_input.format_map(example)
-            for example in list_data_dict 
-        ]
         sources = []
         for example in list_data_dict:
             if example['instruction'] == '':
                 sources.append('')
+            elif data_args.use_chat_template and tokenizer.chat_template:
+                sources.append(
+                    tokenizer.apply_chat_template(
+                        [{"role": "user", "content": example["instruction"]}],
+                        tokenize=False,
+                        add_generation_prompt=True,
+                    )
+                )
             else:
                 sources.append(prompt_input.format_map(example))
         targets = [f"{example['output']}{tokenizer.eos_token}" for example in list_data_dict]

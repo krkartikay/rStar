@@ -18,6 +18,7 @@ def parse_args():
     parser.add_argument("--base_mode", type=str, default="")
     parser.add_argument("--task", type=str, default="gsm8k")
     parser.add_argument("--save_res", type=str, default="")
+    parser.add_argument("--custom_cfg", type=str, default="config/sft_eval_greedy.yaml")
     return parser.parse_args()
 
 
@@ -72,7 +73,7 @@ if __name__ == "__main__":
                 result_root = args.policy_lora_dir or args.model
                 save_dir = os.path.join(result_root, args.task)
                 command = (
-                    f'python main.py --custom_cfg config/sft_eval_greedy.yaml '
+                    f'python main.py --custom_cfg {args.custom_cfg} '
                     f'--qaf ./eval_data/{task_to_file[args.task]} '
                     f'--save_in_model {save_dir} --model_dir {model}'
                 )
