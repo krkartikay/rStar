@@ -16,7 +16,7 @@ from typing import Optional, Any, Dict, List, Callable, Type, Tuple
 from pydantic import BaseModel, ConfigDict, field_validator
 from .agents.tree import BaseTree
 from .agents.mcts import MCTS
-from .llms.llms import llm_generate, rm_generate
+from .llms.llms import llm_generate, openai_generate, rm_generate
 from .llms.llm_engine import llm_engine, rm_engine
 from .constants import TIMEOUT_SECONDS, ERROR_COLOR
 
@@ -38,6 +38,9 @@ class Solver(BaseModel):
             self.stop = OmegaConf.to_object(self.config.stop)
 
         self.need_value_func = self.config.need_value_func
+        if self.config.task_type == "coding" and self.config.llm_backend == "openai_api":
+            self.need_value_func = False
+            self.config.need_value_func = False
         if self.need_value_func:
             self.reward_model = self.create_rm()
         self.llm = self.create_llm()
@@ -71,7 +74,7 @@ class Solver(BaseModel):
         self.llm_engine = engine
         self.generate_sampling_params = sampling_params
         return partial(
-            llm_generate,
+            openai_generate if self.config.llm_backend == "openai_api" else llm_generate,
             engine=self.llm_engine,
         )
 
@@ -206,7 +209,7 @@ class Solver(BaseModel):
             outs = self.output(agents)
             with open(osp.join(saved_json_path, f"rollout{rollout_idx:02}" + saved_jsonl_file_name), "a+", encoding='utf-8') as writer:
                 for d in cur_data:
-                    question = d["question"]
+                    question = (d.get("problem_statement") or d.get("question") or d.get("prompt")) if self.config.task_type == "coding" else d["question"]
                     d["rstar"] = outs[question]
                     writer.write(json.dumps(d, ensure_ascii=False) + '\n')
                     writer.flush()

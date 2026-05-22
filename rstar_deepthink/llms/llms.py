@@ -1,8 +1,22 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 import torch
-from typing import List
+from dataclasses import dataclass
+from typing import Any, List, Optional
 from vllm import LLM, SamplingParams
+
+
+@dataclass
+class SimpleCompletionOutput:
+    text: str
+    stop_reason: Optional[str] = None
+
+
+@dataclass
+class SimpleRequestOutput:
+    prompt: str
+    outputs: List[SimpleCompletionOutput]
+    value_estimate: Optional[float] = None
 
 
 class Reward():
@@ -42,6 +56,20 @@ def llm_generate(
             output.outputs = end_ans[:1]
         else:
             output.outputs = other_ans
+    return outputs
+
+
+def openai_generate(prompts: List[str], sampling_params: Any, engine: Any):
+    if not prompts:
+        return []
+    outputs = []
+    n = getattr(sampling_params, "n", 1)
+    for prompt in prompts:
+        completions = []
+        for _ in range(n):
+            text = engine.generate(prompt, sampling_params)
+            completions.append(SimpleCompletionOutput(text=text, stop_reason=None))
+        outputs.append(SimpleRequestOutput(prompt=prompt, outputs=completions))
     return outputs
 
 

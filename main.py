@@ -6,12 +6,15 @@ import os
 import json
 import torch
 import argparse
+import shutil
+from pathlib import Path
 from tqdm import tqdm
 from datetime import datetime
 from omegaconf import OmegaConf
 from rstar_deepthink.agents import BS, MCTS
 from rstar_deepthink.solver import Solver
 from rstar_deepthink.config import BaseConfig
+from rstar_deepthink.coding import WorkspaceManager, coding_task_from_row
 
 torch.set_num_threads(12)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -64,7 +67,7 @@ if __name__ == '__main__':
         config.reward_model_dir = args.reward_model_dir
     print(config)
 
-    llm_version = os.path.basename(config.model_dir.rstrip("/"))
+    llm_version = config.api_model if config.llm_backend == "openai_api" else os.path.basename(config.model_dir.rstrip("/"))
 
     data = load_qaf(args.qaf)
     solver = Solver(config=config)
@@ -88,11 +91,27 @@ if __name__ == '__main__':
         
     with open(saved_jsonl_file, "a+", encoding='utf-8') as writer:
         for cur_data in tqdm(batch(data, config.batch_size), desc="Main Processing"):
-            agents = [agent(config=config, question=d["question"], ground_truth=str(d["answer"])) 
-                      for d in cur_data]
+            if config.task_type == "coding":
+                tasks = [coding_task_from_row(d, default_test_command=config.test_command) for d in cur_data]
+                agents = [
+                    agent(
+                        config=config,
+                        question=task.problem_statement,
+                        ground_truth=task.instance_id,
+                        coding_task=task,
+                    )
+                    for task in tasks
+                ]
+            else:
+                tasks = None
+                agents = [agent(config=config, question=d["question"], ground_truth=str(d["answer"]))
+                          for d in cur_data]
             jsonlines = solver.solve(agents, saved_jsonl_file, cur_data)
-            for d in cur_data:
-                question = d["question"]
+            for idx, d in enumerate(cur_data):
+                question = tasks[idx].problem_statement if config.task_type == "coding" else d["question"]
                 d["rstar"] = jsonlines[question]
                 writer.write(json.dumps(d, ensure_ascii=False) + '\n')
                 writer.flush()
+            if config.task_type == "coding" and not config.keep_workspaces:
+                for task in tasks:
+                    shutil.rmtree(Path(config.workspace_root) / WorkspaceManager.safe_name(task.instance_id), ignore_errors=True)

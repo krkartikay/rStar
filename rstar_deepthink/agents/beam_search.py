@@ -18,7 +18,8 @@ from rstar_deepthink.constants import (
     OUTPUT,
     OUTPUT_END,
 )
-from .tree import BaseTree, code_execution
+from .tree import BaseTree, bash_execution, code_execution
+from rstar_deepthink.coding import WorkspaceManager
 
 
 class BS(BaseTree):
@@ -43,6 +44,12 @@ class BS(BaseTree):
             self.prompt_wrap = rstar_prompt_wrap
             self.obs_wrap = rstar_obs_wrap
             self.step_unwrap = rstar_step_result_unwrap
+        elif self.config.prompt_wrap == "swe":
+            from .utils import swe_prompt_wrap, swe_obs_wrap, swe_step_result_unwrap
+
+            self.prompt_wrap = swe_prompt_wrap
+            self.obs_wrap = swe_obs_wrap
+            self.step_unwrap = swe_step_result_unwrap
 
         self.candidate_nodes.append(self.current_node)
         self.current_top_num = self.config.step_beam_width
@@ -161,19 +168,29 @@ class BS(BaseTree):
         new_node.depth = node.depth + 1
 
         if parser_result is None:
+            if self.config.task_type == "coding" and node.state.get("workspace"):
+                new_node.state["workspace"] = WorkspaceManager(self.config.workspace_root, self.config.keep_workspaces).create_child(node.state["workspace"], new_node.tag)
             new_node.is_terminal = True
             new_node.state["text"] = step_result
             new_node.state["final_answer"] = NO_VALID_CHILD
         elif parser_result["final_answer"]:
+            if self.config.task_type == "coding" and node.state.get("workspace"):
+                new_node.state["workspace"] = WorkspaceManager(self.config.workspace_root, self.config.keep_workspaces).create_child(node.state["workspace"], new_node.tag)
             new_node.is_terminal = True
             new_node.state["text"] = step_result
             new_node.state["final_answer"] = parser_result["final_answer"]
         elif parser_result["action"]:
-            observation = code_execution(node, parser_result)
+            if parser_result["action"] == "bash":
+                observation = bash_execution(node, new_node, parser_result, self.config)
+            else:
+                observation = code_execution(node, parser_result)
             new_node.state["action"] = parser_result["action"]
             new_node.state["action_input"] = parser_result["action_input"]
             new_node.state["observation"] = observation
-            if CODE_END in parser_result["action_input"]:
+            if parser_result["action"] == "bash":
+                observation = self.obs_wrap(observation)
+                new_node.state["text"] = f"{step_result}{self.config.step_delim}{observation}"
+            elif CODE_END in parser_result["action_input"]:
                 observation = self.obs_wrap(observation)
                 new_node.state["text"] = f"{step_result}{self.config.step_delim}{observation}"
                 if "Error" in observation:

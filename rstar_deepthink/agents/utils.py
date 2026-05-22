@@ -139,6 +139,70 @@ def rstar_step_result_unwrap(
         return text, parser_result
 
 
+def swe_prompt_wrap(question: str, partial_solution: str, config) -> str:
+    prompt = (
+        "You are inside a checked-out software repository at the task's base commit. "
+        "Your goal is to create a real source-code patch for the SWE-bench issue.\n\n"
+        "Respond with exactly one action at a time, using only one of these formats:\n"
+        "<bash>COMMAND<end_of_bash>\n"
+        "<finish>short summary of the patch<end_of_finish>\n\n"
+        "Operational rules:\n"
+        "1. Use concrete repository paths. Never write placeholders such as <file_path>, "
+        "path/to/file.py, or <filename_goes_here>.\n"
+        "2. First inspect the repository with commands like ls, find, git grep, sed, and git status.\n"
+        "3. Edit tracked source files directly using python - <<'PY' scripts, sed/perl, or cat > an exact path.\n"
+        "4. After editing, run git diff -- src tests or git diff --stat to confirm a non-empty tracked patch.\n"
+        "5. Run the focused pytest command if the needed test environment exists; if pytest is unavailable, "
+        "still inspect git diff and finish only with a real patch.\n"
+        "6. Do not create branches, do not commit, do not use pagers like less, and do not modify scratch files only.\n"
+        "7. Use <finish> only after git diff shows the intended source-code change.\n\n"
+        f"Task:\n{question}\n\n"
+    )
+    if partial_solution:
+        prompt += "Trace so far:\n" + partial_solution
+    return prompt
+
+
+def swe_obs_wrap(observation: str) -> str:
+    return f"<output>{observation}<end_of_output>"
+
+
+def _extract_between(text: str, start_tag: str, end_tag: str) -> Optional[str]:
+    start = text.find(start_tag)
+    if start == -1:
+        return None
+    start += len(start_tag)
+    end = text.find(end_tag, start)
+    if end == -1:
+        return text[start:].strip()
+    return text[start:end].strip()
+
+
+def swe_step_result_unwrap(text: str) -> Tuple[str, Dict[str, str]]:
+    parser_result = {
+        "action": "",
+        "action_input": "",
+        "final_answer": "",
+    }
+    finish = _extract_between(text, "<finish>", "<end_of_finish>")
+    if finish is not None:
+        parser_result["final_answer"] = finish
+        return f"<finish>{finish}<end_of_finish>", parser_result
+    command = _extract_between(text, "<bash>", "<end_of_bash>")
+    if command is not None:
+        command = (
+            command.replace("<bash>", "")
+            .replace("</bash>", "")
+            .replace("<end_of_bash>", "")
+            .replace("</end_of_bash>", "")
+            .strip()
+        )
+        parser_result["action"] = "bash"
+        parser_result["action_input"] = command
+        return f"<bash>{command}<end_of_bash>", parser_result
+    return text, None
+
+
 def is_multi_choice(answer):
     for c in answer:
         if c not in ["A", "B", "C", "D", "E"]:

@@ -44,11 +44,36 @@ SEARCH_CHOICES = ChoiceEnum(_SEARCH_CHOICES)
 
 _PROMPT_CHOICES = [
     "rstar", 
+    "swe",
 ]
 
 PROMPT_CHOICES = ChoiceEnum(_PROMPT_CHOICES)
 @dataclass
 class BaseConfig:
+    task_type: str = field(
+        default="coding", metadata={"help": "task domain"}
+    )
+    llm_backend: str = field(
+        default="openai_api", metadata={"help": "generation backend"}
+    )
+    api_model: str = field(
+        default="gpt-5.4-nano", metadata={"help": "OpenAI Responses API model"}
+    )
+    workspace_root: str = field(
+        default="./workspaces", metadata={"help": "root directory for coding task workspaces"}
+    )
+    keep_workspaces: bool = field(
+        default=False, metadata={"help": "keep coding task workspaces after a run"}
+    )
+    bash_timeout_seconds: int = field(
+        default=60, metadata={"help": "timeout for bash actions and tests"}
+    )
+    bash_output_max_chars: int = field(
+        default=12000, metadata={"help": "maximum captured bash output chars"}
+    )
+    test_command: str = field(
+        default="", metadata={"help": "fallback test command for coding tasks"}
+    )
 
     mode: SEARCH_CHOICES = field(
         default="mcts", metadata={"help": "search mode for inference"}

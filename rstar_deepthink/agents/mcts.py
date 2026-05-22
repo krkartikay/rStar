@@ -15,7 +15,8 @@ from rstar_deepthink.constants import (
     NO_VALID_CHILD, 
     CODE_END,
 )
-from .tree import BaseTree, code_execution
+from .tree import BaseTree, bash_execution, code_execution
+from rstar_deepthink.coding import WorkspaceManager, run_bash
 from .beam_search import BS
 
 
@@ -99,21 +100,31 @@ class MCTS(BS):
         new_node.depth = node.depth + 1
 
         if parser_result is None:
+            if self.config.task_type == "coding" and node.state.get("workspace"):
+                new_node.state["workspace"] = WorkspaceManager(self.config.workspace_root, self.config.keep_workspaces).create_child(node.state["workspace"], new_node.tag)
             new_node.is_terminal = True
             new_node.state["text"] = step_result
             new_node.state["final_answer"] = NO_VALID_CHILD
             self.eval_final_answer(new_node)
         elif parser_result["final_answer"]:
+            if self.config.task_type == "coding" and node.state.get("workspace"):
+                new_node.state["workspace"] = WorkspaceManager(self.config.workspace_root, self.config.keep_workspaces).create_child(node.state["workspace"], new_node.tag)
             new_node.is_terminal = True
             new_node.state["text"] = step_result
             new_node.state["final_answer"] = parser_result["final_answer"]
             self.eval_final_answer(new_node)
         elif parser_result["action"]:
-            observation = code_execution(node, parser_result)
+            if parser_result["action"] == "bash":
+                observation = bash_execution(node, new_node, parser_result, self.config)
+            else:
+                observation = code_execution(node, parser_result)
             new_node.state["action"] = parser_result["action"]
             new_node.state["action_input"] = parser_result["action_input"]
             new_node.state["observation"] = observation
-            if CODE_END in parser_result["action_input"]:
+            if parser_result["action"] == "bash":
+                observation = self.obs_wrap(observation)
+                new_node.state["text"] = f"{step_result}{self.config.step_delim}{observation}"
+            elif CODE_END in parser_result["action_input"]:
                 observation = self.obs_wrap(observation)
                 new_node.state["text"] = f"{step_result}{self.config.step_delim}{observation}"
             else:
@@ -139,6 +150,38 @@ class MCTS(BS):
         node.children.append(new_node)
 
     def eval_final_answer(self, node: Type[MCTSNode]) -> None:
+        if self.config.task_type == "coding":
+            if node.state["final_answer"] in [NO_VALID_CHILD, TOO_MANY_STEPS, TOO_MANY_CODE_ERRORS]:
+                node.update(self.config.negative_reward)
+                return
+            workspace = node.state.get("workspace")
+            test_command = getattr(self.coding_task, "test_command", "") if self.coding_task else self.config.test_command
+            if not workspace:
+                node.state["test_exit_code"] = "missing_workspace"
+                node.update_recursive(self.config.negative_reward, self.root)
+                return
+            if test_command:
+                result = run_bash(
+                    test_command,
+                    cwd=workspace,
+                    timeout_seconds=self.config.bash_timeout_seconds,
+                    output_max_chars=self.config.bash_output_max_chars,
+                )
+                node.state["test_command"] = test_command
+                node.state["test_exit_code"] = str(result["exit_code"])
+                node.state["test_output"] = result["output"]
+                reward = self.config.positive_reward if result["exit_code"] == 0 else self.config.negative_reward
+            else:
+                node.state["test_command"] = ""
+                node.state["test_exit_code"] = "not_run"
+                node.state["test_output"] = "No test command configured."
+                reward = self.config.negative_reward
+            node.state["candidate_patch"] = WorkspaceManager.git_diff(workspace)
+            node.update_recursive(reward, self.root)
+            if reward == self.config.positive_reward:
+                self.final_answer_nodes.append(node)
+            return
+
         if node.state["final_answer"] in [NO_VALID_CHILD, TOO_MANY_STEPS, TOO_MANY_CODE_ERRORS]:
             # if the final answer is not valid, update the node with negative reward
             node.update(self.config.negative_reward)

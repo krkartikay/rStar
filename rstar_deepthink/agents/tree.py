@@ -3,6 +3,7 @@
 # Adapted from https://github.com/MARIO-Math-Reasoning/Super_MARIO
 from __future__ import annotations
 import os
+import json
 from abc import abstractmethod
 from termcolor import colored
 from typing import Optional, Any, Dict, List, Callable, Type, Tuple, Union
@@ -12,6 +13,7 @@ from timeout_decorator import timeout
 from rstar_deepthink.config import BaseConfig
 from rstar_deepthink.nodes.base_node import BaseNode
 from rstar_deepthink.tools.python_tool import PythonInterpreter
+from rstar_deepthink.coding import WorkspaceManager, run_bash
 from rstar_deepthink.constants import TIMEOUT_SECONDS, TIMEOUT_MESSAGE, CODE_END, OUTPUT_END, CODE, ANSWER
 
 
@@ -43,6 +45,7 @@ class BaseTree(BaseModel):
     config: Any
     question: str
     ground_truth: Optional[Union[str, List[str]]] = None
+    coding_task: Optional[Any] = None
     llm: Any = None
     root: Optional[Type[BaseNode]] = None
     current_node: Optional[Type[BaseNode]] = None 
@@ -62,7 +65,7 @@ class BaseTree(BaseModel):
     @field_validator("config")
     def validate_config(cls, cfg: Any):
         if issubclass(type(cfg), DictConfig):
-            if not os.path.exists(cfg.model_dir):
+            if getattr(cfg, "llm_backend", "vllm") == "vllm" and not os.path.exists(cfg.model_dir):
                 raise ValueError(f"Model directory \"{cfg.model_dir}\" cannot be found.")
             return cfg
 
@@ -71,6 +74,12 @@ class BaseTree(BaseModel):
     def create_root(self) -> Type[BaseNode]:
         root = self.create_node()
         root.state["extra_info"] = f"question: {self.question}"
+        if getattr(self.config, "task_type", "math") == "coding":
+            task = getattr(self, "coding_task", None)
+            if task is not None:
+                manager = WorkspaceManager(self.config.workspace_root, self.config.keep_workspaces)
+                root.state["workspace"] = manager.create_root(task)
+                root.state["task"] = json.dumps(task.to_dict(), ensure_ascii=False)
         return root
 
     @abstractmethod
@@ -144,6 +153,28 @@ def code_execution(
         observation = "{}: {}".format(type(e).__name__, str(e))
     
     return observation
+
+
+def bash_execution(
+    parent_node: Type[BaseNode],
+    child_node: Type[BaseNode],
+    parser_result: Dict[str, str],
+    config,
+) -> str:
+    manager = WorkspaceManager(config.workspace_root, config.keep_workspaces)
+    parent_workspace = parent_node.state.get("workspace")
+    if not parent_workspace:
+        return "WorkspaceError: parent node has no workspace."
+    child_workspace = manager.create_child(parent_workspace, child_node.tag)
+    child_node.state["workspace"] = child_workspace
+    result = run_bash(
+        parser_result["action_input"],
+        cwd=child_workspace,
+        timeout_seconds=config.bash_timeout_seconds,
+        output_max_chars=config.bash_output_max_chars,
+    )
+    child_node.state["bash_exit_code"] = str(result["exit_code"])
+    return result["output"]
 
 
 def collect_action_inputs(
