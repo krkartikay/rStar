@@ -8,11 +8,16 @@ import os.path as osp
 from tqdm import tqdm
 from termcolor import colored
 from functools import partial
-from vllm import LLM, SamplingParams
-from vllm.outputs import RequestOutput
+from typing import Optional, Any, Dict, List, Callable, Type, Tuple
+try:
+    from vllm import LLM, SamplingParams
+    from vllm.outputs import RequestOutput
+except ModuleNotFoundError:
+    LLM = Any
+    SamplingParams = Any
+    RequestOutput = Any
 from pebble import ProcessPool
 from omegaconf import DictConfig, OmegaConf
-from typing import Optional, Any, Dict, List, Callable, Type, Tuple
 from pydantic import BaseModel, ConfigDict, field_validator
 from .agents.tree import BaseTree
 from .agents.mcts import MCTS

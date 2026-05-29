@@ -1,0 +1,17 @@
+{
+  "raw_trace_file": "/Users/krkartikay/rStar-swe/generated_traces/swe_fixture_raw_traces.jsonl",
+  "sft_trace_file": "/Users/krkartikay/rStar-swe/generated_traces/swe_fixture_sft_traces.jsonl",
+  "raw_rows": 9,
+  "passing_sft_rows": 4,
+  "passing_instance_ids": [
+    "fixture-add-bug",
+    "fixture-parity-bug",
+    "fixture-reverse-bug",
+    "fixture-flatten-bug"
+  ],
+  "excluded_instance_ids": [
+    "fixture-even-bug",
+    "fixture-whitespace-bug",
+    "fixture-whitespace-bug"
+  ]
+}

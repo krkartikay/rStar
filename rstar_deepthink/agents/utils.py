@@ -3,12 +3,23 @@
 # Adapted from https://github.com/MARIO-Math-Reasoning/Super_MARIO
 from __future__ import annotations
 from typing import List, Dict, Any, Optional, Type, Tuple, Union
-from math_evaluation import is_equiv
+try:
+    from math_evaluation import is_equiv
+except ModuleNotFoundError:
+    is_equiv = None
 from rstar_deepthink.prompts.prompt_rstar import PROMPT_RSTAR
 from rstar_deepthink.tools.python_tool import PythonInterpreter
 from rstar_deepthink.constants import *
-from utils.math_equal import math_equal
-from utils.checker import check_one_answer
+try:
+    from utils.math_equal import math_equal
+except ModuleNotFoundError:
+    def math_equal(a, b):
+        return str(a).strip() == str(b).strip()
+try:
+    from utils.checker import check_one_answer
+except ModuleNotFoundError:
+    def check_one_answer(a, b):
+        return str(a).strip() == str(b).strip()
 from utils.util import equiv, strip_string, choice_answer_clean
 
 
@@ -173,6 +184,14 @@ def _extract_between(text: str, start_tag: str, end_tag: str) -> Optional[str]:
         return None
     start += len(start_tag)
     end = text.find(end_tag, start)
+    candidate_end_tags = [
+        end_tag.replace("<", "</", 1),
+        start_tag.replace("<", "</", 1),
+    ]
+    for candidate_end_tag in candidate_end_tags:
+        alt_end = text.find(candidate_end_tag, start)
+        if alt_end != -1 and (end == -1 or alt_end < end):
+            end = alt_end
     if end == -1:
         return text[start:].strip()
     return text[start:end].strip()
@@ -235,14 +254,15 @@ def rstar_equiv(gt, pred):
         
         # For college-math and omni-math, the pred and gt positions need to be changed.
         # Because we found that the quality of ground truth in a small subset of problems within benchmarks like college-math is relatively low.
+        equiv_funcs = [func for func in [math_equal, is_equiv, check_one_answer] if func is not None]
         if any(
-            func(x, y) for func in [math_equal, is_equiv, check_one_answer] for x, y in [(gt, pred), (pred, gt)]
+            func(x, y) for func in equiv_funcs for x, y in [(gt, pred), (pred, gt)]
         ):
             return True
         # special for college-math, etc.
         gt_strip, pred_strip = strip_string(gt), strip_string(pred)
         if any(
-            func(x, y) for func in [math_equal, is_equiv, check_one_answer] for x, y in [(gt_strip, pred_strip), (pred_strip, gt_strip)]
+            func(x, y) for func in equiv_funcs for x, y in [(gt_strip, pred_strip), (pred_strip, gt_strip)]
         ):
             return True
 

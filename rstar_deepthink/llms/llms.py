@@ -3,7 +3,11 @@
 import torch
 from dataclasses import dataclass
 from typing import Any, List, Optional
-from vllm import LLM, SamplingParams
+try:
+    from vllm import LLM, SamplingParams
+except ModuleNotFoundError:
+    LLM = Any
+    SamplingParams = Any
 
 
 @dataclass

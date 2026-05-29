@@ -4,7 +4,8 @@ openai
 termcolor
 jsonlines
 pebble
-vllm==0.6.6.post1 # >=0.6.6.post1
+timeout-decorator
+#vllm==0.6.6.post1 # >=0.6.6.post1
 matplotlib
 pyparsing
 scipy

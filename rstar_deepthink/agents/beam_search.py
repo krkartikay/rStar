@@ -6,7 +6,10 @@ from termcolor import colored
 from typing import Dict, Any, Optional, Type, List, Tuple, Callable, Union
 from pydantic import BaseModel, PrivateAttr, conlist, ConfigDict, field_validator
 from functools import partial
-from vllm.outputs import RequestOutput
+try:
+    from vllm.outputs import RequestOutput
+except ModuleNotFoundError:
+    RequestOutput = Any
 from rstar_deepthink.nodes.base_node import BaseNode
 from rstar_deepthink.constants import (
     TOO_MANY_CODE_ERRORS, 

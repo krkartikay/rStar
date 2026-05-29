@@ -5,7 +5,11 @@ import torch
 from dataclasses import dataclass
 from rstar_deepthink.llms.rm import *
 from transformers import AutoConfig, AutoTokenizer
-from vllm import LLM, SamplingParams
+try:
+    from vllm import LLM, SamplingParams
+except ModuleNotFoundError:
+    LLM = None
+    SamplingParams = None
 
 
 @dataclass
@@ -46,6 +50,8 @@ class OpenAIResponsesEngine:
         return "".join(chunks)
 
 def llm_init(config):
+    if LLM is None or SamplingParams is None:
+        raise ImportError("vllm is required when llm_backend is set to 'vllm'.")
     llm = LLM(
         model=config.model_dir, 
         tensor_parallel_size=config.tp, 
@@ -86,6 +92,8 @@ def llm_engine(config):
 
 def rm_engine(config):
     if config.need_value_func:
+        if LLM is None:
+            raise ImportError("vllm is required when need_value_func is true.")
         prm_model = LLM(
             model=config.reward_model_dir, 
             task="reward",

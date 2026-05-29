@@ -5,7 +5,11 @@ from __future__ import annotations
 from termcolor import colored
 from typing import Dict, Any, Optional, Type, List, Tuple, Callable, Union
 from pydantic import field_validator
-from vllm.outputs import CompletionOutput, RequestOutput
+try:
+    from vllm.outputs import CompletionOutput, RequestOutput
+except ModuleNotFoundError:
+    CompletionOutput = Any
+    RequestOutput = Any
 from rstar_deepthink.agents.utils import math_equiv as is_equiv
 from rstar_deepthink.nodes.base_node import BaseNode
 from rstar_deepthink.nodes import MCTSNode
